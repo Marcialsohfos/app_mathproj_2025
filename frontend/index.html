@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projection Démographique - Lab_math_RMT</title>
+    <style>
+        /* VOTRE CSS COMPLET ICI (identique au précédent) */
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --light-color: #ecf0f1;
+            --dark-color: #34495e;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* ... (TOUT LE CSS RESTE IDENTIQUE) ... */
+        
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                text-align: center;
+                gap: 10px;
+            }
+            
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">Projection Démographique</div>
+                <div class="copyright">Lab_math_RMT et CIE 2025</div>
+            </div>
+        </div>
+    </header>
+    
+    <div class="container">
+        <h1 class="app-title">Application de Projection Démographique</h1>
+        <p class="app-description">
+            Ce système utilise un modèle polynomial p(t) = at² + bt + c pour projeter l'évolution démographique des villes.
+            Les projections sont basées sur les données de population des années 2016, 2018 et 2020.
+        </p>
+        
+        <div class="card">
+            <h2 class="card-title">Ajouter une nouvelle ville</h2>
+            <form id="city-form">
+                <div class="form-group">
+                    <label for="city-name">Nom de la ville</label>
+                    <input type="text" id="city-name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="population-2016">Population en 2016</label>
+                    <input type="number" id="population-2016" min="0" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="population-2018">Population en 2018</label>
+                    <input type="number" id="population-2018" min="0" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="population-2020">Population en 2020</label>
+                    <input type="number" id="population-2020" min="0" required>
+                </div>
+                
+                <button type="submit">Calculer les projections</button>
+            </form>
+        </div>
+        
+        <div id="alert-container"></div>
+        
+        <div class="card results-section" id="results-section">
+            <h2 class="card-title">Résultats des projections</h2>
+            <div id="results-container"></div>
+            
+            <div class="actions">
+                <button class="btn-success" id="export-excel">Exporter vers Excel</button>
+                <button class="btn-warning" id="reset-data">Réinitialiser les données</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2 class="card-title">Exemples de données</h2>
+            <p>Vous pouvez utiliser ces données d'exemple pour tester l'application :</p>
+            <div class="actions">
+                <button id="load-example-1">Charger NGAOUNDÉRÉ I</button>
+                <button id="load-example-2">Charger YAOUNDE 1</button>
+                <button id="load-all-examples">Charger toutes les villes</button>
+            </div>
+        </div>
+    </div>
+    
+    <footer>
+        <div class="container">
+            <p>Application de projection démographique - Lab_math_RMT et CIE 2025</p>
+            <p>Modèle polynomial: p(t) = at² + bt + c (avec t=0 pour l'année 2016)</p>
+        </div>
+    </footer>
+
+    <script>
+        // URL de l'API Backend (à modifier après déploiement sur Render)
+        const API_BASE = 'https://votre-backend-render.onrender.com';
+        
+        // Pour le développement local, décommentez la ligne ci-dessous :
+        // const API_BASE = 'http://localhost:5000';
+
+        // Fonction utilitaire pour les appels API
+        async function apiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.erreur || `Erreur HTTP: ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        // Fonction pour afficher une alerte
+        function showAlert(message, type = 'error') {
+            const alertContainer = document.getElementById('alert-container');
+            alertContainer.innerHTML = `
+                <div class="alert alert-${type}">
+                    ${message}
+                </div>
+            `;
+            
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        // Fonction pour formater les nombres
+        function formatNumber(num) {
+            return Math.round(num).toLocaleString();
+        }
+
+        // Fonction pour afficher les résultats
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('results-container');
+            const resultsSection = document.getElementById('results-section');
+            
+            if (Object.keys(data).length === 0) {
+                resultsSection.style.display = 'none';
+                return;
+            }
+            
+            let html = '<div class="results-grid">';
+            
+            for (const [ville, villeData] of Object.entries(data)) {
+                html += `
+                    <div class="city-card">
+                        <div class="city-name">${ville}</div>
+                        <div class="coefficients">
+                            <div class="coefficient"><span>Coefficient a:</span> <span>${villeData.coefficients.a.toFixed(2)}</span></div>
+                            <div class="coefficient"><span>Coefficient b:</span> <span>${villeData.coefficients.b.toFixed(2)}</span></div>
+                            <div class="coefficient"><span>Coefficient c:</span> <span>${villeData.coefficients.c.toFixed(2)}</span></div>
+                        </div>
+                        <table class="projections-table">
+                            <thead>
+                                <tr>
+                                    <th>Année</th>
+                                    <th>Population</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(villeData.projections).map(([annee, population]) => `
+                                    <tr>
+                                        <td>${annee}</td>
+                                        <td>${formatNumber(population)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            resultsContainer.innerHTML = html;
+            resultsSection.style.display = 'block';
+        }
+
+        // Charger les données au démarrage
+        async function loadInitialData() {
+            try {
+                const data = await apiCall('/api/get_villes');
+                displayResults(data);
+            } catch (error) {
+                console.error('Erreur lors du chargement des données:', error);
+                showAlert('Impossible de se connecter au serveur. Vérifiez votre connexion.', 'error');
+            }
+        }
+
+        // Gestion de l'ajout d'une nouvelle ville
+        document.getElementById('city-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const cityName = document.getElementById('city-name').value;
+            const population2016 = document.getElementById('population-2016').value;
+            const population2018 = document.getElementById('population-2018').value;
+            const population2020 = document.getElementById('population-2020').value;
+            
+            if (!cityName || !population2016 || !population2018 || !population2020) {
+                showAlert('Veuillez remplir tous les champs.');
+                return;
+            }
+            
+            try {
+                const result = await apiCall('/api/ajouter_ville', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        nom_ville: cityName,
+                        population_2016: parseFloat(population2016),
+                        population_2018: parseFloat(population2018),
+                        population_2020: parseFloat(population2020)
+                    })
+                });
+                
+                showAlert(`Projections calculées avec succès pour ${cityName}!`, 'success');
+                await loadInitialData();
+                this.reset();
+                
+            } catch (error) {
+                showAlert(`Erreur: ${error.message}`);
+            }
+        });
+
+        // Gestion de l'export Excel
+        document.getElementById('export-excel').addEventListener('click', function() {
+            window.open(`${API_BASE}/api/export_excel`, '_blank');
+        });
+
+        // Gestion de la réinitialisation
+        document.getElementById('reset-data').addEventListener('click', async function() {
+            if (!confirm('Êtes-vous sûr de vouloir réinitialiser toutes les données?')) {
+                return;
+            }
+            
+            try {
+                await apiCall('/api/reinitialiser', { method: 'POST' });
+                showAlert('Toutes les données ont été réinitialisées.', 'success');
+                displayResults({});
+            } catch (error) {
+                showAlert(`Erreur: ${error.message}`);
+            }
+        });
+
+        // Chargement des exemples
+        document.getElementById('load-all-examples').addEventListener('click', async function() {
+            try {
+                const result = await apiCall('/api/charger_exemples', { method: 'POST' });
+                showAlert(result.message, 'success');
+                await loadInitialData();
+            } catch (error) {
+                showAlert(`Erreur: ${error.message}`);
+            }
+        });
+
+        document.getElementById('load-example-1').addEventListener('click', async function() {
+            try {
+                await apiCall('/api/ajouter_ville', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        nom_ville: "NGAOUNDÉRÉ I",
+                        population_2016: 109423,
+                        population_2018: 115772,
+                        population_2020: 122282
+                    })
+                });
+                showAlert('NGAOUNDÉRÉ I ajoutée avec succès!', 'success');
+                await loadInitialData();
+            } catch (error) {
+                showAlert(`Erreur: ${error.message}`);
+            }
+        });
+
+        document.getElementById('load-example-2').addEventListener('click', async function() {
+            try {
+                await apiCall('/api/ajouter_ville', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        nom_ville: "YAOUNDE 1",
+                        population_2016: 429252,
+                        population_2018: 461134,
+                        population_2020: 494353
+                    })
+                });
+                showAlert('YAOUNDE 1 ajoutée avec succès!', 'success');
+                await loadInitialData();
+            } catch (error) {
+                showAlert(`Erreur: ${error.message}`);
+            }
+        });
+
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            loadInitialData();
+        });
+    </script>
+</body>
+</html>
